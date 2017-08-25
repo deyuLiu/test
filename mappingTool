@@ -1,0 +1,417 @@
+import tkinter as tk
+from tkinter import ttk 
+import tkinter.font as tkFont
+from PIL import Image, ImageTk 
+import Pmw
+import data
+import csv
+import sys
+p_count = 0
+e_count = 0
+P_count = 0
+L_count = 0
+
+class tableList(ttk.Treeview):
+    def __init__(self,view, tablePoint, tableLine, data,*args, **kwargs):
+        ttk.Treeview.__init__(self, *args, **kwargs)
+        self.tablePoint = tablePoint
+        self.tableLine = tableLine
+        self.data = data
+        self.view = view
+
+        self.tablePoint.bind("<Double-1>", self.tablePointClick)
+        self.tableLine.bind("<Double-1>", self.tableLineClick)
+
+    def list_func(self, item, tag):
+        if (tag == 'p'):
+            global P_count
+            P_count += 1
+            self.tablePoint.insert('',P_count,iid='rowP %s'%P_count,values=(str(item.index),
+                str(item.x),str(item.y)))           
+
+        if (tag == 'e'):
+            global L_count
+            L_count += 1
+            self.tableLine.insert('',L_count, iid='rowL %s'%L_count, values=(str(item.index),
+                str(item.point1.index),str(item.point2.index)))    
+  
+    def tableShow(self,num,tag):
+        if(tag == 'p'):
+            self.tablePoint.selection_set("rowP "+str(num))
+        if(tag == 'e'):
+            self.tableLine.selection_set("rowL "+str(num))
+
+    def tableClear(self,tag):
+        if(tag =='p'):
+            ite = self.tablePoint.selection()[0]
+            self.tablePoint.selection_remove(ite) 
+        if(tag == 'e'):
+            _ite = self.tableLine.selection()[0]
+            self.tableLine.selection_remove(_ite)
+
+    def tablePointClick(self,point):
+        itm = self.tablePoint.selection()[0]
+        pIndex =self.tablePoint.item(itm , "values")
+        for k in range(len(self.data.points)):
+            if (int(pIndex[0]) == self.data.points[k].index):
+                point.x = self.data.points[k].x
+                point.y = self.data.points[k].y
+                pItem = self.view.choose_change(point)
+                
+
+    def tableLineClick(self,edge):
+        item = self.tableLine.selection()[0]
+        p_index =self.tableLine.item(item, "values")
+        for k in range(len(self.data.edges)):
+            if (int(p_index[0]) == self.data.edges[k].index):
+                p_s = self.data.edges[k].point1.index
+                p_e = self.data.edges[k].point2.index
+                s_x = 0
+                s_y = 0
+                e_x = 0 
+                e_y = 0
+                for m in range(len(self.data.points)):
+                    if (int(p_s) == self.data.points[m].index):
+                        s_x = self.data.points[m].x
+                        s_y = self.data.points[m].y
+                    if (int(p_e) == self.data.points[m].index):
+                        e_x = self.data.points[m].x
+                        e_y = self.data.points[m].y
+                edge.x = (s_x+e_x)/2
+                edge.y = (s_y+e_y)/2
+                self.view.choose_change(edge)
+
+    def tableNodeDel(self,tag):
+        print("Tree Delete")
+        if (tag == 'p'): 
+            selected_item = self.tablePoint.selection()[0] # get selected item
+            self.tablePoint.delete(selected_item)
+        elif(tag == 'e'):
+            _selected_item = self.tableLine.selection()[0] # get selected item
+            self.tableLine.delete(_selected_item)
+
+class Viewer(tk.Canvas):
+    pointTag = 'point'
+    edgeTag = 'edge'
+
+    def __init__(self,parent,tablePoint, tableLine, data,mouse_func, *args, **kwargs):
+        tk.Canvas.__init__(self, parent, *args, **kwargs)
+        self.parent = parent  
+        self.pointsMap = {}
+        self.edgesMap = {}
+        self.selectedItem = 0
+        self.mouse_func =mouse_func
+        self.tableList = tableList(self,tablePoint, tableLine,data)
+
+        #mouse left click and move
+        self.bind("<Button-1>", self.callback)
+        self.bind('<Motion>', self.motion) 
+        
+
+
+    def picmove(self,event):
+        print("picmove")
+        if event.keysym=='Up':  
+            self.move(1,0,-30)#移动ID为1的事物，使得横坐标加0，纵坐标减3  
+        elif event.keysym=='Down':  
+            self.move(1,0,+30)  
+        elif event.keysym=='Left':  
+            self.move(1,-30,0)  
+        elif event.keysym=='Right':  
+            self.move(1,30,0)   
+
+    def choose_change(self,p):
+        x = p.x
+        y = p.y
+        items = self.find_overlapping(x-1, y-1, x+1, y+1)
+        pItem = self.findItemByTag(items, self.pointTag)
+        eItem = self.findItemByTag(items, self.edgeTag)
+
+        if pItem:
+            self.onItemClick( pItem )
+        elif eItem:
+            self.onItemClick( eItem )
+
+    def onItemClick(self, item):
+        if self.selectedItem:
+            item = self.selectedItem
+            self.selectedItem = 0
+            self.itemconfig(item, fill="red") 
+        else:    
+            self.selectedItem = item
+            self.itemconfig(item, fill="blue")
+
+
+    def callback(self, event):
+            x = self.canvasx(event.x)
+            y = self.canvasy(event.y)
+            # Find the canvas object that has been clicked.
+            # If several objects have been clicked always get the topmost
+            # point.
+            items = self.find_overlapping(x-1, y-1, x+1, y+1)
+            # On click of canvas object select the method to use
+            pItem = self.findItemByTag(items, self.pointTag)
+            eItem = self.findItemByTag(items, self.edgeTag)
+
+            if pItem:
+                self.onPointClick(event, pItem)
+            elif eItem:
+                self.onEdgeClick(eItem)
+            else:
+                global p_count
+                p_count = p_count+1
+                self.drawPoint(x, y, 4) 
+                self.unselectItem('p') #Unselect currently selected point  
+
+    def motion(self,event):
+        x, y = event.x, event.y
+        self.mouse_func(x,y)
+
+    def findItemByTag(self, items, tag):
+        for item in items:
+            if tag in self.gettags(item):
+                return item
+
+    def deleteItem(self, event):
+        print("delectedItem")
+        x = self.canvasx(event.x)
+        y = self.canvasy(event.y)
+        # Find the canvas object that has been clicked.
+        # If several objects have been clicked always get the topmost
+        # point.
+        items = self.find_overlapping(x-1, y-1, x+1, y+1)
+        # On click of canvas object select the method to use
+        pItem = self.findItemByTag(items, self.pointTag)
+        eItem = self.findItemByTag(items, self.edgeTag)
+        if pItem:
+            self.dm.points.remove(self.pointsMap[self.selectedItem])
+            self.delete(self.delSelectedItem())
+            self.tableList.tableNodeDel('p')
+        elif eItem:
+            self.dm.edges.remove(self.edgesMap[self.selectedItem])
+            self.delete(self.delSelectedItem())
+            self.tableList.tableNodeDel('e')
+
+    def setdm(self, dm_):
+        self.dm = dm_ 
+
+    def drawPoint(self, x, y,r=4):
+        point = data.Point(x, y, p_count)
+        self.dm.points.append(point)
+        item = self.create_oval(x-r, y-r, x+r, y+r, outline="white", fill="red",
+                                 tags=(self.pointTag))
+        self.pointsMap.update({ item : point })
+        self.tableList.list_func(point, 'p')
+        self.enterAndLeave(item)
+        return point
+
+    def drawEdge(self, point1, point2):
+        global e_count
+        e_count =e_count+1
+        edge = data.Edge(point1, point2, e_count)
+        self.dm.edges.append(edge)
+        itemID = self.create_line(point1.x, point1.y, point2.x, point2.y,
+            tags=(self.edgeTag),fill = "red")
+        self.edgesMap.update({ itemID : edge })
+        self.tableList.list_func(edge, 'e')
+        self.enterAndLeave(itemID)
+        return itemID
+
+    def onPointClick(self, event, item):
+        if self.selectedItem:
+            if self.selectedItem != item:
+                self.drawEdge(self.pointsMap[self.selectedItem], self.pointsMap[item])
+            self.unselectItem('p')
+        else:
+            self.selectItem(item,'p')
+
+    def onEdgeClick(self,item):
+        if self.selectedItem:
+            self.unselectItem('e')
+        else:
+            self.selectItem(item,'e')
+
+    def selectItem(self,item,tag):
+        self.selectedItem = item
+        self.itemconfig(item, fill="blue")
+        if(tag == 'p'):
+            row = self.pointsMap[item].index
+            self.tableList.tableShow(row,'p')
+        if(tag == 'e'):
+            _row = self.edgesMap[item].index
+            self.tableList.tableShow(_row,'e')
+
+    def unselectItem(self,tag):
+        if not self.selectedItem:
+            return
+        item = self.selectedItem
+        self.selectedItem = 0
+        self.itemconfig(item, fill="red")
+        if(tag == 'p'):
+            self.tableList.tableClear('p')
+        elif(tag == 'e'):
+            self.tableList.tableClear('e')   
+        return item
+
+    def delSelectedItem(self):
+        print("enter delSelectedItem")
+        if not self.selectedItem:
+            return
+        item = self.selectedItem
+        self.selectedItem = 0
+        self.itemconfig(item, fill="red")
+        return item
+
+    def enterAndLeave(self, itemID):
+        #mouse enter,  mouse left
+        self.tag_bind(itemID, '<Enter>', self.enterPoint)
+        self.tag_bind(itemID, '<Leave>', self.leavePoint)
+
+    def enterPoint(self, event):
+        self.config(cursor="arrow")
+
+    def leavePoint(self, event):
+        self.config(cursor="tcross")
+
+class Main(tk.Tk):
+    def __init__(self, *args, **kwargs):
+        tk.Tk.__init__(self, *args, **kwargs)
+
+
+        self.frame_left_top = tk.Frame(self,width=1420, height=955, bg='white')
+        self.frame_left_bottom = tk.Frame(self,width=1420, height=25,bg = 'white')
+        self.frame_center = tk.Frame(self,width=20, height=980, bg='white')
+        self.frame_right = tk.Frame(self,width=380, height=980, bg='white')
+
+        self.frame_left_top.grid(row=0, column=0, padx=2, pady=5)
+        self.frame_left_bottom.grid(row=1, column=0)
+        self.frame_center.grid(row=0, column=1,rowspan=2, padx=2, pady=5)
+        self.frame_right.grid(row=0, column=2, rowspan=2, padx=4, pady=5)
+
+        self.frame_left_top.grid_propagate(1)
+        self.frame_center.grid_propagate(1)
+        self.frame_left_bottom.grid_propagate(1)
+        
+        self.hbar=tk.Scrollbar(self.frame_left_top,orient='horizontal')
+        self.hbar.grid(sticky = 'ew', columnspan = 2)
+        self.vbar=tk.Scrollbar(self.frame_center,orient='vertical')
+        self.vbar.grid(sticky = 'ns',columnspan = 2)
+
+        self.setImage("map_device.png") 
+
+        self.mousePos = Pmw.Group(self.frame_right, tag_text='鼠标信息')
+        self.mousePos.pack(expand='yes', fill='both')
+        self.cw = tk.Label(self.mousePos.interior(),
+                                text = 'mouse(X.Y):')
+        self.cw.pack(padx = 0.5, pady = 30, expand=1, fill=tk.X,side=tk.LEFT)
+        self.e = tk.StringVar()
+        self.text_1 =  tk.Entry(self.mousePos.interior(),textvariable=self.e).pack(padx = 1,
+                                    pady = 30, expand=0.5, fill=tk.X,side=tk.LEFT)
+
+        self.pointsList = Pmw.Group(self.frame_right, tag_text='点列表信息')
+        self.pointsList.pack(expand='yes', fill='both')
+        self.label = tk.Label(self.pointsList.interior(), text = 'point_pos(X,Y):')
+        self.label.pack(padx = 0.5, pady = 30, fill=tk.X,side=tk.LEFT)
+        self.pheadTag = ['index', 'p_x','p_y']
+        self.tablePoint = ttk.Treeview(self.pointsList.interior(),columns = self.pheadTag,
+                                 show="headings")       
+        for col in self.pheadTag:
+            self.tablePoint.column(col,width=tkFont.Font().measure(col.title()))
+            self.tablePoint.heading(col, text=col.title())
+        self.tablePoint.pack()
+
+        self.linelist = Pmw.Group(self.frame_right, tag_text='线列表信息')
+        self.linelist.pack(expand='yes', fill='both')
+        self.labelLine = tk.Label(self.linelist.interior(),
+            text = 'point_dex(X,Y):')
+        self.labelLine.pack(padx = 0.5, pady = 30, fill= tk.X, side=tk.LEFT)
+        self.lheadTag = ['index', 'p_s','p_e']
+        self.tableLine = ttk.Treeview(self.linelist.interior(),
+                                columns = self.lheadTag,show="headings")
+        for col in self.lheadTag:
+            self.tableLine.column(col,width=tkFont.Font().measure(col.title()))
+            self.tableLine.heading(col, text=col.title())
+        self.tableLine.pack()
+
+        self.viewer = Viewer(self.frame_left_top,self.tablePoint, self.tableLine, 
+            self.dm,self.mouse_func, width= 1420,height =955,cursor="tcross")
+        self.viewer.setdm(self.dm)
+        self.viewer.grid()
+        self.viewer.create_image(0, 0, anchor=tk.NW, image=self.dm.photo)
+
+
+        self.bind("<Delete>", self.viewer.deleteItem)
+        self.bind('<KeyPress-Up>', self.viewer.picmove)
+        self.bind('<KeyPress-Down>', self.viewer.picmove)
+        self.bind('<KeyPress-Left>', self.viewer.picmove)
+        self.bind('<KeyPress-Right>', self.viewer.picmove)
+
+        self.hbar.config(command=self.viewer.xview)
+        self.vbar.config(command=self.viewer.yview)
+
+        self.w3 = Pmw.Group(self.frame_right, tag_text='文件操作')
+        self.w3.pack(expand='yes', fill='both')
+        self.spotinfo_input = tk.Button(self.w3.interior(), text="导出", width=15, height=2,
+                                        command = self.save) 
+        self.spotinfo_input.pack(padx =0.5, pady = 30,fill=tk.X,side=tk.LEFT) 
+        self.spotinfo_output = tk.Button(self.w3.interior(), text="导入", width=15,
+                                         height=2, command = self.importData)  
+        self.spotinfo_output.pack(padx = 0.5, pady = 30,fill=tk.X,side=tk.LEFT)
+
+    def mouse_func(self,x,y):
+        self.e.set('( '+str(x)+' , '+str(y)+' )')
+
+    def setImage(self, imagename):
+        self.dm = data.DataModel(imagename, imagename.split('.')[0] + "_point.csv",
+                                 imagename.split('.')[0] + "_edge.csv")
+        self.dm.loadImage()
+
+    def save(self):
+        self.dm.saveEdgesToCSV()
+        self.dm.savePointsToCSV()
+
+    def importData(self):
+        point_reader = csv.reader(open('map_device_point.csv', encoding='utf-8'))
+        for j,rows in enumerate(point_reader):
+            if j>0:
+                row = rows
+                global p_count
+                p_count = int(float(row[0]))
+                self.viewer.drawPoint(int(float(row[1])),int(float(row[2])),4)
+
+        line_reader = csv.reader(open('map_device_edge.csv', encoding='utf-8'))
+        for l,lines in enumerate(line_reader):
+            if l>0:
+                line = lines
+                with open ('map_device_point.csv', encoding='utf-8') as csvfile:
+                    reader = csv.DictReader(csvfile)
+                    for row in reader:
+                        if row['index'] == line[1]:
+                            point_1 = data.Point(int(float(row['X'])),
+                                int(float(row['Y'])),int(float(row['index'])))
+                            self.dm.points.append(point_1)
+                        if row['index'] == line[2]:
+                            point_2 = data.Point(int(float(row['X'])),
+                                int(float(row['Y'])),int(float(row['index']))) 
+                            self.dm.points.append(point_2)
+                    self.viewer.drawEdge(point_1,point_2)
+        
+    def getImagename(self, argv):
+        imagename = ''
+        try:
+            opts, args = getopt.getopt(argv,"hi:",["ifile="])
+        except getopt.GetoptError:
+            print(appname + '-i <imagename>')
+            sys.exit(2)
+        for opt, arg in opts:
+            if opt == '-h':
+                print('main.py -i <imagename>')
+                sys.exit()
+            elif opt in ("-i", "--ifile"):
+                imagename = arg
+        print('Input file is ', imagename)
+        return imagename
+
+if __name__ == "__main__":
+    root = Main()
+    root.mainloop() # Start the GUI
